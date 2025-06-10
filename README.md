@@ -1,2 +1,2 @@
-# cgo-web
-Go web framework written in pure C.
+# goblin
+Resource based interpreted language - written in X.
