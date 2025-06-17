@@ -1,0 +1,92 @@
+# This is the Goblin file.
+#
+# Retrieve all stocks beneath x price.
+# For each - get its average volume for the last 5 days - store it's value in a hash map.
+# Write to json dict.
+
+# Question - // or # for comments?
+
+# These can be purely environment variables or arguments, but I like having globals.
+MIN_PRICE = 400;
+TIME_SPAN_DAYS = 5;
+CLIENT_ID = os.environ["CLIENT_ID"];
+CLIENT_SECRET = os.environ["SECRET_ID"];
+BASE_URL = "https://stocktrader.io";
+
+struct Quote:
+    id: str; # str or string?
+    price: float;
+    volume: int;
+    quote_timestamp: int;
+
+struct AccessTokenResource(APIResource):
+    url: APIResourceEndpoint = f"{BASE_URL}/authorize"
+    headers: dict = {}; # Etc.
+    query_params: dict = {
+        "client_id":CLIENT_ID,
+        "client_secret":CLIENT_SECRET,
+        "grant_type":"client_credentials",
+        "scope":"default"
+    };
+    response_body: {
+        access_token: str;
+        expires_in: int;
+    };
+
+struct AuthorizedAPIResource(APIResource):
+    headers: {
+        "Authorization" : str # Literal.
+    };
+    query_params: {
+        "pageKey": str | null;
+    };
+    paginate: page_key_paginator;
+    response_body: {
+        data: [Quote];
+        pageKey: str | null;
+    };
+
+struct GetQuotesResource(AuthorizedAPIResource):
+    url: APIResourceEndpoint = f"{BASE_URL}/quotes";
+    query_params: {
+        "filter": str | null;
+    };
+
+struct GetQuoteHistory(AuthorizedAPIResource):
+    expects: {
+        id: str;
+    }
+    url: APIResourceEndpoint = [f"{BASE_URL}/quotes", GetQuoteHistory.expects.id];
+    query_params: {
+        "range": str | null;
+    };
+
+func page_key_paginator(resource: AuthorizedAPIResource) -> AuthorizedAPIResource | null:
+    return resource.on_request() : resource_response =>
+        {
+            if resource_response.body.pageKey == null:
+                return null;
+            resource.query_params.pageKey = resource_response.body.pageKey;
+            return resource;
+        };
+
+func main():
+    var base_resource = AuthorizedAPIResource();
+    base_resource.headers.Authorization = AccessTokenResource.get().access_token;
+
+    return GetQuotesResource(uses=base_resource, query_params={filter:f"price>={MIN_PRICE}"}, paginate=true) : quote_responses => 
+        map(quote_responses => quote_response.data) : quote_arrays =>
+            sum(quote_arrays => quote_array) : quotes => 
+                feed(quotes => quote) : quote => {
+                    return GetQuoteHistory(uses=base_resource, query_params={"range":60*60*24*TIME_SPAN_DAYS}, paginate=true) : quote_history_responses =>
+                        map(quote_history_responses => quote_history_response.data) : quote_history_arrays =>
+                            sum(quote_history_arrays => quote_history_array) : historical_quotes => 
+                                avg(historical_quotes => historical_quote.volume);
+                }.then(quote, average_volume) => # .then, for feed, gives you the input and output for the consumer.
+                    write("output.json", JSON, {quote.id, average_volume});
+
+# Lots of this is wishful thinking - but I think it's a good start.
+# I ended up doing half OOP - half functional.
+# We should think about ways to reduce this.
+# The jist is that you design your resources, and then call them in a big asynchronous chain.
+# The IDE can validate your resources once you've run the program once.
