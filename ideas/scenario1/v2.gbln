@@ -27,7 +27,7 @@ struct AuthRequest(QuoteAPIRequest) {
     response: AuthResponse;
 }
 
-struct AuthResponse(QuoteAPIRequest) { # Can expose parts of the response here, throw away everything we don't need.
+struct AuthResponse(HTTPResponse) { # Can expose parts of the response here, throw away everything we don't need.
     access_token: HTTPResponseJSONBodyKey[str];
     expires_in: HTTPResponseJSONBodyKey[int];
 }
@@ -38,7 +38,7 @@ struct QuoteRequest(QuoteAPIRequest) {
     response: QuoteResponse;
 };
 
-struct QuoteResponse(QuoteAPIRequest) {
+struct QuoteResponse(HTTPResponse) {
     data: HTTPResponseJSONBodyKey[Array[Quote]]; # Can put more complex types here obv.
     page_key: HTTPResponseJSONBodyKey[str | null];
 };
@@ -50,14 +50,14 @@ struct QuoteAPI(HTTPResource) {
     }
 
     @get("auth", authenticate=False)
-    func authenticate_request(request: AuthRequest) {
+    func authenticateRequest(request: AuthRequest) {
         return request.resolve() : response =>
             return HTTPBearerAuthenticationScheme(bearer=response.access_token, expiration=response.expires_in);
     };
 
     @get("quotes", limit=10000, authenticate=True, paginate=True)
     @get("quotes/{id}/history", limit=1000, authenticate=True, paginate=True) 
-    func quote_request(request: QuoteRequest) { 
+    func quoteRequest(request: QuoteRequest) { 
         return request.resolve() : response => 
             iterate(response.data) : quote => {
                 return quote; # Or something similar - don't return the array, but each individual quote, one by one.
