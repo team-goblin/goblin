@@ -1,0 +1,87 @@
+# This is the Goblin V2 file.
+#
+# Retrieve all stocks beneath x price.
+# For each - get its average volume for the last 5 days - store it's value in a hash map.
+# Write to json dict.
+
+CLIENT_ID = os.environ["CLIENT_ID"];
+CLIENT_SECRET = os.environ["SECRET_ID"];
+
+# I like these contracts.
+struct Quote {
+    id: str;
+    price: float;
+    volume: int;
+    quote_timestamp: int;
+};
+
+struct QuoteAPIRequest(HTTPRequest) {
+    url: HTTPResourceEndpoint[Literal("https://stocktrader.io")];
+}
+
+struct AuthRequest(QuoteAPIRequest) {
+    client_id: HTTPRequestQueryParameter[Literal(CLIENT_ID)];
+    client_secret: HTTPRequestQueryParameter[Literal(CLIENT_SECRET)];
+    grant_type:  HTTPRequestQueryParameter[Literal("client_credentials")];
+    scope:  HTTPRequestQueryParameter[Literal("default")];
+    response: AuthResponse;
+}
+
+struct AuthResponse(QuoteAPIRequest) { # Can expose parts of the response here, throw away everything we don't need.
+    access_token: HTTPResponseJSONBodyKey[str];
+    expires_in: HTTPResponseJSONBodyKey[int];
+}
+
+struct QuoteRequest(QuoteAPIRequest) {
+    filter: Optional(HTTPRequestQueryParameter[str]);
+    page_key: Optional(HTTPRequestQueryParameter[str | null | PaginateKey(response.page_key)]); # This is kind of a mind-fuck, implicit pagination.
+    response: QuoteResponse;
+};
+
+struct QuoteResponse(QuoteAPIRequest) {
+    data: HTTPResponseJSONBodyKey[Array[Quote]]; # Can put more complex types here obv.
+    page_key: HTTPResponseJSONBodyKey[str | null];
+};
+
+struct QuoteAPI(HTTPResource) {
+    @authenticate() # Could use a better way to set this.
+    func authenticate() {
+        return QuoteAPI.get("auth");
+    }
+
+    @get("auth", authenticate=False)
+    func authenticate_request(request: AuthRequest) {
+        return request.resolve() : response =>
+            return HTTPBearerAuthenticationScheme(bearer=response.access_token, expiration=response.expires_in);
+    };
+
+    @get("quotes", limit=10000, authenticate=True, paginate=True)
+    @get("quotes/{id}/history", limit=1000, authenticate=True, paginate=True) 
+    func quote_request(request: QuoteRequest) { 
+        return request.resolve() : response => 
+            iterate(response.data) : quote => {
+                return quote; # Or something similar - don't return the array, but each individual quote, one by one.
+            }
+    };
+};
+
+func getQuoteHistory(quoteId: str, days: int) : [Quote] {
+    return gather(QuoteAPI.get("quotes/{quoteId}/history", QuoteRequest(filter=f"timestamp>={days*60*60*24+time.time()}"))); # Get them all before returning.
+};
+
+func getQuotes(minPrice: int) : stream[Quote] {
+    return QuoteAPI.get(f"quotes", QuoteRequest(filter=f"price>={minPrice}"));
+};
+
+# I like this logic.
+func main() {
+    return getQuotes(minPrice=400) : quotes => # Get all quotes beneath 400.
+        gather( # Marks this a synchronous point - move on when everything within it resolves completely.
+            iterate(quotes) : quote => # For each.
+                getQuoteHistory(quote=quote, days=5) : quoteHistory => { # Feed quotes into getQuoteHistory asynchronously.
+                    return historicalQuote, sum([historicalQuote.volume for historicalQuote in quoteHistory])/len(quoteHistory); # If quoteHistory is yielded, we'd need to gather here.
+                }
+        ) : historicalQuoteTuples => { # Array of tuples. [[{id:NVDA,price:145.12,volume:2219892,timestamp:1750125915408},2679892]]
+            write("output.json", JSON, {historicalQuoteTuple[0].id: historicalQuoteTuple[1] for historicalQuoteTuple in historicalQuoteTuples}); # I personally love python dict/list comphrension. It's intuitive and powerful.
+        }
+};

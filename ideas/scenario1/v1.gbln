@@ -13,13 +13,14 @@ CLIENT_ID = os.environ["CLIENT_ID"];
 CLIENT_SECRET = os.environ["SECRET_ID"];
 BASE_URL = "https://stocktrader.io";
 
-struct Quote:
+struct Quote {
     id: str; # str or string?
     price: float;
     volume: int;
     quote_timestamp: int;
+};
 
-struct AccessTokenResource(APIResource):
+struct AccessTokenResource(APIResource) {
     url: APIResourceEndpoint = f"{BASE_URL}/authorize"
     headers: dict = {}; # Etc.
     query_params: dict = {
@@ -32,8 +33,9 @@ struct AccessTokenResource(APIResource):
         access_token: str;
         expires_in: int;
     };
+};
 
-struct AuthorizedAPIResource(APIResource):
+struct AuthorizedAPIResource(APIResource) {
     headers: {
         "Authorization" : str # Literal.
     };
@@ -45,14 +47,16 @@ struct AuthorizedAPIResource(APIResource):
         data: [Quote];
         pageKey: str | null;
     };
+};
 
-struct GetQuotesResource(AuthorizedAPIResource):
+struct GetQuotesResource(AuthorizedAPIResource) {
     url: APIResourceEndpoint = f"{BASE_URL}/quotes";
     query_params: {
         "filter": str | null;
     };
+};
 
-struct GetQuoteHistory(AuthorizedAPIResource):
+struct GetQuoteHistory(AuthorizedAPIResource) {
     expects: {
         id: str;
     }
@@ -60,8 +64,9 @@ struct GetQuoteHistory(AuthorizedAPIResource):
     query_params: {
         "range": str | null;
     };
+};
 
-func page_key_paginator(resource: AuthorizedAPIResource) -> AuthorizedAPIResource | null:
+func page_key_paginator(resource: AuthorizedAPIResource) -> AuthorizedAPIResource | null {
     return resource.on_request() : resource_response =>
         {
             if resource_response.body.pageKey == null:
@@ -69,8 +74,9 @@ func page_key_paginator(resource: AuthorizedAPIResource) -> AuthorizedAPIResourc
             resource.query_params.pageKey = resource_response.body.pageKey;
             return resource;
         };
+};
 
-func main():
+func main() {
     var base_resource = AuthorizedAPIResource();
     base_resource.headers.Authorization = AccessTokenResource.get().access_token;
 
@@ -84,6 +90,7 @@ func main():
                                 avg(historical_quotes => historical_quote.volume);
                 }.then(quote, average_volume) => # .then, for feed, gives you the input and output for the consumer.
                     write("output.json", JSON, {quote.id, average_volume});
+};
 
 # Lots of this is wishful thinking - but I think it's a good start.
 # I ended up doing half OOP - half functional.
