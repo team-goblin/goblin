@@ -4,8 +4,10 @@
 # For each - get its average volume for the last 5 days - store it's value in a hash map.
 # Write to json dict.
 
-CLIENT_ID = os.environ["CLIENT_ID"];
-CLIENT_SECRET = os.environ["SECRET_ID"];
+CLIENT_ID : str = os.environ["CLIENT_ID"];
+CLIENT_SECRET : str = os.environ["SECRET_ID"];
+BEARER_TOKEN : str | null = null;
+BEARER_TOKEN_EXPIRES : int | null = null;
 
 # I like these contracts.
 struct Quote {
@@ -15,11 +17,13 @@ struct Quote {
     quote_timestamp: int;
 };
 
-struct QuoteAPIRequest(HTTPRequest) {
-    url: HTTPResourceEndpoint[Literal("https://stocktrader.io")];
+struct APIRequest(HTTPRequest) {
+    url: HTTPResourceURL[Literal("https://stocktrader.io")];
 }
 
-struct AuthRequest(QuoteAPIRequest) {
+struct AuthRequest(APIRequest) {
+    endpoint: HTTPResourceURL[Literal("auth")];
+    type: HTTPRequestType.GET;
     client_id: HTTPRequestQueryParameter[Literal(CLIENT_ID)];
     client_secret: HTTPRequestQueryParameter[Literal(CLIENT_SECRET)];
     grant_type:  HTTPRequestQueryParameter[Literal("client_credentials")];
@@ -32,10 +36,13 @@ struct AuthResponse(HTTPResponse) { # Can expose parts of the response here, thr
     expires_in: HTTPResponseJSONBodyKey[int];
 }
 
-struct QuoteRequest(QuoteAPIRequest) {
+struct QuoteRequest(APIRequest) {
     filter: Optional(HTTPRequestQueryParameter[str]);
-    page_key: Optional(HTTPRequestQueryParameter[str | null | PaginateKey(response.page_key)]); # This is kind of a mind-fuck, implicit pagination.
+    type: HTTPRequestType.GET;
+    page_key: Optional(HTTPRequestQueryParameter[str | null])
     response: QuoteResponse;
+    paginator: Paginator = getNextPaginationRequest;
+    interceptors: Interceptor[] = [authenticateRequest];
 };
 
 struct QuoteResponse(HTTPResponse) {
@@ -43,34 +50,50 @@ struct QuoteResponse(HTTPResponse) {
     page_key: HTTPResponseJSONBodyKey[str | null];
 };
 
-struct QuoteAPI(HTTPResource) {
-    @authenticate() # Could use a better way to set this.
-    func authenticate() {
-        return QuoteAPI.get("auth");
+func getBearerToken() : str {
+    if (!BEARER_TOKEN_EXPIRES || (BEARER_TOKEN_EXPIRES && BEARER_TOKEN_EXPIRES <= time.time())) {
+        return AuthRequest().resolve() : response => {
+            BEARER_TOKEN = response.access_token;
+            BEARER_TOKEN_EXPIRES = response.expires_in;
+            return BEARER_TOKEN;
+        }
     }
+    else {
+        return BEARER_TOKEN
+    } 
+};
 
-    @get("auth", authenticate=False)
-    func authenticateRequest(request: AuthRequest) {
-        return request.resolve() : response =>
-            return HTTPBearerAuthenticationScheme(bearer=response.access_token, expiration=response.expires_in);
-    };
+func getNextPaginationRequest(request: HTTPRequest, response: HTTPResponse) : HTTPRequest | null { # Defines how to paginate the next request.
+    if(response.page_key != null){
+        request.page_key = response.page_key;
+        return request;
+    }
+    return null;
+}
 
-    @get("quotes", limit=10000, authenticate=True, paginate=True)
-    @get("quotes/{id}/history", limit=1000, authenticate=True, paginate=True) 
-    func quoteRequest(request: QuoteRequest) { 
-        return request.resolve() : response => 
-            iterate(response.data) : quote => {
-                return quote; # Or something similar - don't return the array, but each individual quote, one by one.
-            }
-    };
+func authenticateRequest(request: HTTPRequest) : HTTPRequest {
+    return getBearerToken() : token => {
+        request.headers["Authentication"] = "Bearer " + token;
+        return request
+    }
 };
 
 func getQuoteHistory(quoteId: str, days: int) : [Quote] {
-    return gather(QuoteAPI.get("quotes/{quoteId}/history", QuoteRequest(filter=f"timestamp>={days*60*60*24+time.time()}"))); # Get them all before returning.
+    return gather(QuoteRequest(endpoint="quotes/{quoteId}/history", filter=f"timestamp>={days*60*60*24+time.time()}").paginate(limit=1000) : quoteResponses => 
+        iterate(quoteResponses) : quoteResponse => 
+            iterate(quoteResponse.data) : quote => {
+                return quote;
+            };
+    );
 };
 
 func getQuotes(minPrice: int) : stream[Quote] {
-    return QuoteAPI.get(f"quotes", QuoteRequest(filter=f"price>={minPrice}"));
+    return gather(QuoteRequest(endpoint="quotes", filter=f"price>={minPrice}").paginate(limit=1000) : quoteResponses => 
+        iterate(quoteResponses) : quoteResponse => 
+            iterate(quoteResponse.data) : quote => {
+                return quote;
+            };
+    );
 };
 
 # I like this logic.
