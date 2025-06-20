@@ -1,0 +1,99 @@
+CSV_PATH = "file.csv"
+MD_OUT_PATH = "file.md"
+
+struct Comment {
+    id: int;
+    assignee: int;
+    text: str;
+};
+
+struct Task {
+    id: int;
+    status: str;
+    assignee: int;
+    title: str;
+    created: int;
+    description: str;
+    comments: Comment[];
+    parent: null | int;
+    children: int[];
+};
+
+func getSortedTasks(tasks : Task[]) : {str:Task[]} {
+    var taskDict = {};
+    for task in tasks{
+        if (task.status not in taskDict) {
+            taskDict[status] = [];
+        };
+        taskDict[status].append(task);
+    }
+    return taskDict
+};
+
+func CSVtoComment(el: {str:any}) : Comment {
+    return Comment(
+        id=el["ID"],
+        text=el["TEXT"],
+        assignee=el["ASG_ID"]
+    )
+};
+
+func CSVtoTask(el: {str: any}) : Task {
+    return Task(
+        id=el["ID"],
+        status=el["TASK_STATUS"],
+        assignee=el["ASG_ID"],
+        title=el["TITLE"],
+        created=el["CREATED_TS"],
+        description=el["DESC"],
+        comments=[parseComment(comment) for comment in el["COMMENTS"]],
+        parent=el["PAR_ID"],
+        children=el["CHILD_TASK_IDS"]
+    );
+};
+ 
+func commentToMD(comment: Comment) : str {
+    var outString = "Comment - \n";
+    for key, value in comment.items() {
+        outString += f"**{key}: **{value}\n"
+    }
+    return outString;
+};
+
+func taskToMD(task: Task) : str {
+    var outString = "";
+    outString += f"##Task ID : {task.id} - {task.title}\n"
+    for key, value in task.items() {
+        if key == "comments" {
+            outString += f"**Comments :**\n";
+            for comment in key[value] {
+                outString += f"{commentToMD(comment)}\n";
+            };
+        } else {
+            outString += f"**{key}: **{value}\n";
+        };
+    }
+    return outString;
+};
+
+func translateToMD(categorized: {str:Task[]}) : str {
+    var outString = "";
+    for category in categorized {
+        outString += f"#{category}\n";
+        for task in categorized[category] {
+            outString += f"{taskToMD(task)}\n";
+        };
+    };
+    return outString;
+};
+
+func main() {
+    return read(CSV_PATH, CSV) : file => # Parses it to a JSON-like object. 
+        iterate(file["TASKS"]) : element => {
+            return CSVtoTask(element);
+        } : tasks => 
+        getSortedTasks(tasks) : categorized => 
+            translateToMD(categorized) : outString => {
+                return write(MD_OUT_PATH, outString);
+            };
+};
