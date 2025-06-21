@@ -1,0 +1,45 @@
+CSV_FILE = "input.csv"
+MD_FILE = "output.md"
+
+
+struct Task {
+    id: int;
+    status: str;
+    description: str;
+    title: str;
+    created_date: int;
+    due_date: int;
+}
+
+func read_csv(csv_path: str) => [str] {
+    FileResource(csv_path, "r"): file =>
+    readlines(file, "csv") #Have built in support for various file types: csv, json, yaml, toml, xlsx, etc.
+}
+
+func write_md(md_path: str, md_str: str) {
+    FileResource(md_path, "w+"): file =>
+    write(file, md_str)
+}
+
+func add_md_header(status: str) => str {
+    "## {{status}}\n\n""
+}
+
+func task_to_md(task: Task) => str {
+    "- {{task.id}}. {{task.title}}\n"
+}
+
+func sort_tasks(tasks [Tasks]) => [Tasks] {
+    sort(tasks, _tasks.status, "asc")  # maybe some syntax to refer to a member of a list var?
+}
+
+
+func main(){
+    read_csv(CSV_FILE): lines =>
+    sort_tasks(lines): tasks => task<    # <> syntax used to save [] for indexing
+        status = ""
+        if task.status != status => add_md_header(status) + task_to_md(task)   
+        else task_to_md(task)
+    >.gather(): md_str => 
+    write_md(MD_FILE, md_str)
+}
