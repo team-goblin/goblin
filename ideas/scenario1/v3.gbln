@@ -1,0 +1,64 @@
+# This is the Goblin V3 file.
+#
+# Retrieve all stocks beneath x price.
+# For each - get its average volume for the last 5 days - store it's value in a hash map.
+# Write to json dict.
+
+
+# I tried following functional programming paradigms but it may just be a little messy.
+
+
+
+var MIN_PRICE = 400;
+var TIME_SPAN_DAYS = 5;
+var CLIENT_ID = os.environ["CLIENT_ID"];
+var CLIENT_SECRET = os.environ["SECRET_ID"];
+var BASE_URL = "https://stocktrader.io";
+
+struct Quote {
+    id: str; # str or string?
+    price: float;
+    volume: int;
+    quote_timestamp: int;
+};
+
+#Defining the entire payload response seems tedious for APIs that return larger objects.
+#   Perhaps implement something similar to *args to define a struct with only the fields you care about.
+
+func UnauthorizedResponse(HTTPResponse response) => bool {
+    response.status_code == 401
+}
+
+func AccessTokenResource() => string {
+    HTTPRequest(
+        method: GET,
+        url: "{{BASE_URL}}/token,
+        headers: {
+            "Content-Type": "application/json
+        }
+        data: {
+            client_id: CLIENT_ID,
+            client_secret: CLIENT_SECRET
+        }
+    ) : response => response.data['access_token']
+}
+
+
+func AuthorizedRequest(HTTPRequest) => HTTPRequest {
+    HTTPRequest.headers.append({'Authorization': 'Bearer {{AccessTokenResource}}'}) => response
+    | response.ok => response.data  
+    | UnauthorizedResponse(response) =>   #  "|" for if statements, last | is the else
+    | Exception(Error)        
+}
+
+
+func main {
+    AuthorizedRequest() : stocks => stock[   # Syntax to iterate async over members of an iterable.
+        get_averages(stock, -5)
+    ].gather() # return all stock averages in a list
+    
+}
+
+#Notes
+#No return statement; Implicitly return last executed statement
+#Unfinished, but wanted to get my main thoughts down.
