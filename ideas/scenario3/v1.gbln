@@ -1,0 +1,65 @@
+
+struct UserProfile {
+    id: str;
+    last_active: int;
+    first_name: str;
+    last_name: str;
+    age: int;
+    sex: str;
+    city: str;
+    country: str;
+}
+
+struct Comment {
+    text: str;
+    author: UserProfile;
+    timestamp: int;
+    parent: Post;
+    likes: int;
+}
+
+struct Post {
+    title: str;
+    id: str;
+    author: UserProfile;
+    comments: Comment[];
+    likes: int;
+    tags: str[];
+}
+
+
+func userDBConnection() -> DBConnection {
+    return DBConnection(user=USER, pass=PASS, server=SERVER, database=DATABASE);
+}
+
+
+func queryUserProfiles(db: DBConnection) -> UserProfile[] {
+    # A parameterized sql statement might be better here
+    db.select(cols=[id, last_active],filter="last_active > ***timestamp for last 5 minutes***")
+}
+
+func getUserRecentActivity(db: DBConnection, user: UserProfile, timestamp: int) -> str[]{
+    db.execute("""
+        SELECT Posts.tags
+        FROM Posts
+        INNER JOIN Users
+        ON Users.ID = Posts.AuthorID
+        WHERE Posts.timestamp > {timestamp}""", timestamp)
+}
+
+func findPersonalizedContent(db: DBConnection, tags: str[]) -> {str, Post} {
+    var post_map = {}
+    tags.map(tag =>
+        post_map[tag] = db.execute("SELECT Posts.* FROM Posts WHERE {tag} in Post.tags", tag)
+    ).gather() # Return a dict of tags as keys to a list of Post as values.
+}
+
+
+func main(){
+    var db_session = userDBConnection();
+    var personalized_content = queryUserProfiles(db_session): profiles =>
+    map(profile =>
+        getUserRecentActivity(db_session, profile, ***timestamp for last week***): tags =>
+        findPersonalizedContent(db_session, tags)
+    ).gather()
+}
